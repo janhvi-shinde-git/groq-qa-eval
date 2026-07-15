@@ -121,8 +121,8 @@ MOCK_RESPONSES = {
 }
 
 
-def call_gemini_mock(prompt: str, case_id: str = "clean") -> str:
-    """Stands in for the API so we can test parsing/scoring without a key or network."""
+def call_groq_mock(prompt: str, case_id: str = "clean") -> str:
+    """Stands in for the Groq API so we can test parsing/scoring without a key or network."""
     return MOCK_RESPONSES[case_id]
 
 
