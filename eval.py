@@ -1,11 +1,11 @@
 """
-gemini-qa-eval — smallest working loop.
+groq-qa-eval — smallest working loop.
 
 Task: structured data extraction from messy text (name, date, amount).
-Flow: one input -> Gemini call -> parse JSON -> score vs. expected -> pass/fail + reason.
+Flow: one input -> Groq (Llama 3.3 70B) call -> parse JSON -> score vs. expected -> pass/fail + reason.
 
 Usage:
-    export GEMINI_API_KEY="your-key-here"
+    export GROQ_API_KEY="your-key-here"
     python eval.py
 
 Mock mode (no API key needed, for testing the scoring logic offline):
@@ -80,21 +80,6 @@ TEST_CASES = [
 ]
 
 
-def call_gemini(prompt: str) -> str:
-    """Real API call to Gemini Flash. Requires GEMINI_API_KEY env var."""
-    import google.generativeai as genai
-
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        raise RuntimeError(
-            "GEMINI_API_KEY not set. Run: export GEMINI_API_KEY='your-key-here'"
-        )
-
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel("gemini-2.0-flash")
-    response = model.generate_content(prompt)
-    return response.text
-
 def call_groq(prompt: str) -> str:
     """Real API call to Groq (Llama 3.3 70B). Requires GROQ_API_KEY env var."""
     from groq import Groq
@@ -127,7 +112,7 @@ def call_groq_mock(prompt: str, case_id: str = "clean") -> str:
 
 
 def parse_response(raw_text: str) -> dict:
-    """Gemini sometimes wraps JSON in ```json fences even when told not to. Strip them."""
+    """Llama sometimes wraps JSON in ```json fences even when told not to. Strip them."""
     cleaned = re.sub(r"```json|```", "", raw_text).strip()
     return json.loads(cleaned)
 
@@ -186,7 +171,7 @@ def run_case(case: dict) -> dict:
 
 def main():
     print("=" * 60)
-    print("gemini-qa-eval — run")
+    print("groq-qa-eval — run")
     print("=" * 60)
     if MOCK_MODE:
         print("[MOCK MODE — no real API calls made]")
