@@ -54,7 +54,11 @@ TEST_CASES = [
         "expected": {"name": "Priya Sharma", "date": "2026-06-12", "amount": "180.00"},
     },
     {
-        "id": "ambiguous_date_amount",
+        # Renamed from "ambiguous_date_amount" — the amount field is never ambiguous
+        # here (it passes 10/10 live runs); the actual finding is a deterministic
+        # MM/DD-first bias on locale-ambiguous dates, even with explicit
+        # YYYY-MM-DD formatting instructions in the prompt.
+        "id": "ambiguous_date_format",
         "input_text": (
             "Payment from R. Mehta processed 12/06/26 for one hundred and eighty dollars."
         ),
@@ -100,7 +104,7 @@ def call_groq(prompt: str) -> str:
 
 MOCK_RESPONSES = {
     "clean": '{"name": "Priya Sharma", "date": "2026-06-12", "amount": "180.00"}',
-    "ambiguous_date_amount": '{"name": "R. Mehta", "date": "2026-06-12", "amount": "180.00"}',
+    "ambiguous_date_format": '{"name": "R. Mehta", "date": "2026-06-12", "amount": "180.00"}',
     "missing_fields": '{"name": "not found", "date": "2026-06-12", "amount": "not found"}',
     "conflicting_payment_refund": '{"name": "Priya Sharma", "date": "2026-06-12", "amount": "180.00"}',
 }
