@@ -11,15 +11,37 @@ Usage:
 Mock mode (no API key needed, for testing the scoring logic offline):
     python eval.py --mock
 
+Repeat a run N times per case, to formally reproduce a pass-rate claim
+(e.g. "10/10" on a specific case) instead of asserting it from memory:
+    python eval.py --repeat 10
+    python eval.py --mock --repeat 10
+
+Log every run (raw output + verdict + timestamp) to eval_log.jsonl,
+so pass-rate claims have a receipts file behind them:
+    python eval.py --repeat 10 --log
+
 Format all monetary amounts as strings with exactly two decimal places (e.g. "180.00", not "180" or 180.0).
 """
 
+import argparse
+import datetime
 import os
 import sys
 import json
 import re
 
-MOCK_MODE = "--mock" in sys.argv
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="groq-qa-eval")
+    parser.add_argument("--mock", action="store_true", help="use mock responses instead of calling the live API")
+    parser.add_argument("--repeat", type=int, default=1, help="number of times to run each test case (default: 1)")
+    parser.add_argument("--log", action="store_true", help="append every run's result to eval_log.jsonl")
+    return parser.parse_args()
+
+
+ARGS = parse_args()
+MOCK_MODE = ARGS.mock
+LOG_PATH = "eval_log.jsonl"
 
 # ---- 1. Test cases ----
 # Each case: a messy input + the ground truth we already know is correct.
@@ -147,6 +169,23 @@ def score(actual: dict, expected: dict) -> dict:
     }
 
 
+def log_result(case_id: str, run_number: int, result: dict) -> None:
+    """Append one run's result to eval_log.jsonl as a receipts trail for pass-rate claims."""
+    entry = {
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "mode": "mock" if MOCK_MODE else "live",
+        "case_id": case_id,
+        "run_number": run_number,
+        "overall_pass": result["overall_pass"],
+        "reason": result["reason"],
+        "raw": result.get("raw"),
+        "actual": result.get("actual"),
+        "expected": result.get("expected"),
+    }
+    with open(LOG_PATH, "a", encoding="utf-8") as f:
+        f.write(json.dumps(entry) + "\n")
+
+
 def run_case(case: dict) -> dict:
     prompt = PROMPT_TEMPLATE.format(input_text=case["input_text"])
 
@@ -179,30 +218,53 @@ def main():
     print("=" * 60)
     if MOCK_MODE:
         print("[MOCK MODE — no real API calls made]")
+    if ARGS.repeat > 1:
+        print(f"[REPEAT MODE — {ARGS.repeat} runs per case]")
+    if ARGS.log:
+        print(f"[LOGGING — appending results to {LOG_PATH}]")
 
-    results = []
-    for case in TEST_CASES:
-        print(f"\n--- Case: {case['id']} ---")
-        print(f"Input:    {case['input_text']}")
-        result = run_case(case)
-        print(f"Raw:      {result['raw']}")
-        if "actual" in result:
-            print(f"Actual:   {result['actual']}")
-            print(f"Expected: {result['expected']}")
-        verdict = "PASS" if result["overall_pass"] else "FAIL"
-        print(f"[{verdict}] {result['reason']}")
-        results.append(result)
+    # case_id -> list of per-run results, so we can report a pass rate per case
+    # (this is what backs a claim like "10/10 live runs" instead of leaving it
+    # as an assertion with nothing behind it in the repo).
+    results_by_case = {case["id"]: [] for case in TEST_CASES}
+
+    for run_number in range(1, ARGS.repeat + 1):
+        for case in TEST_CASES:
+            if ARGS.repeat > 1:
+                print(f"\n--- Case: {case['id']} (run {run_number}/{ARGS.repeat}) ---")
+            else:
+                print(f"\n--- Case: {case['id']} ---")
+            print(f"Input:    {case['input_text']}")
+            result = run_case(case)
+            print(f"Raw:      {result['raw']}")
+            if "actual" in result:
+                print(f"Actual:   {result['actual']}")
+                print(f"Expected: {result['expected']}")
+            verdict = "PASS" if result["overall_pass"] else "FAIL"
+            print(f"[{verdict}] {result['reason']}")
+
+            results_by_case[case["id"]].append(result)
+            if ARGS.log:
+                log_result(case["id"], run_number, result)
 
     print("\n" + "=" * 60)
     print("SUMMARY")
     print("=" * 60)
-    passed = sum(1 for r in results if r["overall_pass"])
-    for r in results:
-        verdict = "PASS" if r["overall_pass"] else "FAIL"
-        print(f"  [{verdict}] {r['id']}")
-    print(f"\n{passed}/{len(results)} cases passed.")
 
-    sys.exit(0 if passed == len(results) else 1)
+    total_passed = 0
+    total_runs = 0
+    for case in TEST_CASES:
+        case_results = results_by_case[case["id"]]
+        case_passed = sum(1 for r in case_results if r["overall_pass"])
+        case_total = len(case_results)
+        total_passed += case_passed
+        total_runs += case_total
+        rate = f"{case_passed}/{case_total} ({100 * case_passed / case_total:.0f}%)"
+        print(f"  {case['id']}: {rate}")
+
+    print(f"\n{total_passed}/{total_runs} total runs passed.")
+
+    sys.exit(0 if total_passed == total_runs else 1)
 
 
 if __name__ == "__main__":
